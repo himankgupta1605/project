@@ -1,8 +1,8 @@
 import streamlit as st
 
-from brandpost import db, storage
+from brandpost import adobe_stock, db, storage
 from brandpost.models import Brand
-from brandpost.ui_common import render_sidebar
+from brandpost.ui_common import get_adobe_api_key, render_sidebar
 
 st.set_page_config(page_title="Brand Setup — BrandPost Studio", page_icon="🎨", layout="wide")
 db.init_db()
@@ -102,6 +102,72 @@ if submitted:
     st.session_state["brand_id"] = brand_id
     st.success(f"Saved brand '{brand.name}'.")
     st.rerun()
+
+st.divider()
+st.subheader("Photo library")
+st.caption(
+    "Upload product/lifestyle photos for this brand. Generate Post can use these as post "
+    "backgrounds (with a dark scrim behind the text) instead of a flat color, for more visually "
+    "varied, creative posts."
+)
+library_brand = editing or current_brand
+if not library_brand:
+    st.caption("Save or select a brand above first.")
+else:
+    st.caption(f"Managing photos for **{library_brand.name}**.")
+    new_photos = st.file_uploader(
+        "Add photos", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="library_upload"
+    )
+    if new_photos:
+        for photo in new_photos:
+            storage.save_library_image(library_brand.id, photo)
+        st.success(f"Added {len(new_photos)} photo(s).")
+        st.rerun()
+
+    st.markdown("**Or search Adobe Stock**")
+    adobe_key = get_adobe_api_key()
+    if not adobe_key:
+        st.caption("Enter an Adobe Stock API key in the sidebar to search Adobe's photo library.")
+    else:
+        st.caption(
+            "Search results are preview-resolution thumbnails for drafting a look — license the "
+            "image through Adobe Stock before publishing a post commercially."
+        )
+        query_col, button_col = st.columns([4, 1])
+        query = query_col.text_input("Search Adobe Stock", label_visibility="collapsed", placeholder="e.g. pour-over coffee")
+        search_clicked = button_col.button("Search")
+        if search_clicked and query.strip():
+            with st.spinner("Searching Adobe Stock..."):
+                try:
+                    st.session_state["adobe_results"] = adobe_stock.search_photos(query, api_key=adobe_key)
+                except adobe_stock.AdobeStockError as exc:
+                    st.error(str(exc))
+                    st.session_state["adobe_results"] = []
+
+        results = st.session_state.get("adobe_results", [])
+        if results:
+            cols = st.columns(4)
+            for i, photo in enumerate(results):
+                with cols[i % 4]:
+                    st.image(photo.thumbnail_url, use_container_width=True, caption=photo.title[:40])
+                    if st.button("Add to library", key=f"adobe_add_{photo.id}"):
+                        data = adobe_stock.fetch_image_bytes(photo.thumbnail_url)
+                        storage.save_library_image_from_bytes(library_brand.id, data, ext="jpg")
+                        st.session_state.pop("adobe_results", None)
+                        st.success("Added to library.")
+                        st.rerun()
+
+    images = storage.list_library_images(library_brand.id)
+    if images:
+        cols = st.columns(5)
+        for i, path in enumerate(images):
+            with cols[i % 5]:
+                st.image(path, use_container_width=True)
+                if st.button("Remove", key=f"rm_lib_{i}"):
+                    storage.delete_library_image(path)
+                    st.rerun()
+    else:
+        st.caption("No photos uploaded yet — posts will use solid brand-color backgrounds.")
 
 st.divider()
 st.subheader("All brands")

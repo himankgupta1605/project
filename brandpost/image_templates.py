@@ -6,9 +6,10 @@ so the same code produces on-brand output for any brand fed into it.
 
 from __future__ import annotations
 
+import random
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
 from brandpost.caption_generator import Slide
 from brandpost.config import PORTRAIT_SIZE, SQUARE_SIZE
@@ -17,6 +18,7 @@ from brandpost.models import Brand
 from brandpost.storage import new_post_slide_path
 
 MARGIN = 80
+PHOTO_TEXT_COLOR = (250, 250, 250)
 
 
 # --------------------------------------------------------------- colors --
@@ -60,6 +62,56 @@ def gradient_background(size: tuple[int, int], top_hex: str, bottom_hex: str) ->
     for y in range(height):
         draw.line([(0, y), (size[0], y)], fill=mix(top, bottom, y / max(height - 1, 1)))
     return img
+
+
+def photo_background(
+    size: tuple[int, int], image_path: str, tint_hex: str, strength: float = 0.45
+) -> Image.Image | None:
+    """Cover-crop a brand photo to fill the canvas, with a dark brand-tinted scrim
+    over the whole image so on-image text stays readable regardless of photo content."""
+    try:
+        img = Image.open(image_path)
+        img = ImageOps.exif_transpose(img).convert("RGB")
+    except Exception:
+        return None
+
+    target_ratio = size[0] / size[1]
+    src_ratio = img.width / img.height
+    if src_ratio > target_ratio:
+        new_height = size[1]
+        new_width = max(size[0], int(new_height * src_ratio))
+    else:
+        new_width = size[0]
+        new_height = max(size[1], int(new_width / src_ratio))
+    img = img.resize((new_width, new_height), Image.LANCZOS)
+    left, top = (new_width - size[0]) // 2, (new_height - size[1]) // 2
+    img = img.crop((left, top, left + size[0], top + size[1]))
+
+    scrim_color = mix(hex_to_rgb(tint_hex), (0, 0, 0), 0.7)
+    overlay = Image.new("RGBA", size, (*scrim_color, int(255 * strength)))
+    return Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+
+
+def draw_accent_blobs(canvas: Image.Image, brand: Brand, variant: int = 0) -> None:
+    """Soft blurred brand-color accents tucked into the corners for visual depth on
+    otherwise-flat solid backgrounds. Small and heavily blurred so they read as subtle
+    texture, not shapes competing with the text in the safe zone."""
+    w, h = canvas.size
+    overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    odraw = ImageDraw.Draw(overlay)
+    palette = [hex_to_rgb(brand.secondary_color), hex_to_rgb(brand.accent_color)]
+    corners = [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)]
+    rng = random.Random(variant * 97 + 13)
+    chosen_corners = rng.sample(corners, 2)
+    for i, (cx_frac, cy_frac) in enumerate(chosen_corners):
+        color = palette[i % len(palette)]
+        r = rng.uniform(0.09, 0.13) * w
+        cx = cx_frac * w + rng.uniform(-0.03, 0.03) * w
+        cy = cy_frac * h + rng.uniform(-0.03, 0.03) * h
+        odraw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(*color, 50))
+    overlay = overlay.filter(ImageFilter.GaussianBlur(int(w * 0.035)))
+    blended = Image.alpha_composite(canvas.convert("RGBA"), overlay).convert("RGB")
+    canvas.paste(blended, (0, 0))
 
 
 # ------------------------------------------------------------------ text --
@@ -190,10 +242,20 @@ def draw_badge(draw: ImageDraw.ImageDraw, brand: Brand, xy, number: int, bg, fg)
 
 # ------------------------------------------------------------- templates -
 
-def render_quote_slide(brand: Brand, slide: Slide, size: tuple[int, int] = SQUARE_SIZE) -> Image.Image:
-    canvas = solid_background(size, brand.accent_color)
+def render_quote_slide(
+    brand: Brand, slide: Slide, size: tuple[int, int] = SQUARE_SIZE,
+    background_image: str | None = None, decorative: bool = True,
+) -> Image.Image:
+    photo = photo_background(size, background_image, brand.primary_color) if background_image else None
+    if photo is not None:
+        canvas = photo
+        text_color = PHOTO_TEXT_COLOR
+    else:
+        canvas = solid_background(size, brand.accent_color)
+        if decorative:
+            draw_accent_blobs(canvas, brand, variant=0)
+        text_color = readable_text_color(brand.accent_color)
     draw = ImageDraw.Draw(canvas)
-    text_color = readable_text_color(brand.accent_color)
 
     mark_font = get_font(brand, "serif_bold", 220)
     draw.text((MARGIN - 10, MARGIN - 60), "“", font=mark_font, fill=text_color)
@@ -219,11 +281,22 @@ def render_quote_slide(brand: Brand, slide: Slide, size: tuple[int, int] = SQUAR
     return canvas
 
 
-def render_stat_slide(brand: Brand, slide: Slide, size: tuple[int, int] = SQUARE_SIZE) -> Image.Image:
-    canvas = solid_background(size, brand.background_color)
+def render_stat_slide(
+    brand: Brand, slide: Slide, size: tuple[int, int] = SQUARE_SIZE,
+    background_image: str | None = None, decorative: bool = True,
+) -> Image.Image:
+    photo = photo_background(size, background_image, brand.primary_color) if background_image else None
+    if photo is not None:
+        canvas = photo
+        text_color = PHOTO_TEXT_COLOR
+        accent = PHOTO_TEXT_COLOR
+    else:
+        canvas = solid_background(size, brand.background_color)
+        if decorative:
+            draw_accent_blobs(canvas, brand, variant=1)
+        text_color = hex_to_rgb(brand.text_color)
+        accent = hex_to_rgb(brand.accent_color)
     draw = ImageDraw.Draw(canvas)
-    text_color = hex_to_rgb(brand.text_color)
-    accent = hex_to_rgb(brand.accent_color)
 
     paste_logo(canvas, brand, "top-center")
 
@@ -250,20 +323,22 @@ def render_stat_slide(brand: Brand, slide: Slide, size: tuple[int, int] = SQUARE
 
 
 def render_carousel_slide(
-    brand: Brand, slide: Slide, index: int, total: int, size: tuple[int, int] = PORTRAIT_SIZE
+    brand: Brand, slide: Slide, index: int, total: int, size: tuple[int, int] = PORTRAIT_SIZE,
+    background_image: str | None = None, decorative: bool = True,
 ) -> Image.Image:
     is_hook = index == 0
     is_cta = index == total - 1
+    role_color = brand.primary_color if is_hook else brand.accent_color if is_cta else brand.background_color
 
-    if is_hook:
-        canvas = solid_background(size, brand.primary_color)
-        text_color = readable_text_color(brand.primary_color)
-    elif is_cta:
-        canvas = solid_background(size, brand.accent_color)
-        text_color = readable_text_color(brand.accent_color)
+    photo = photo_background(size, background_image, brand.primary_color) if background_image else None
+    if photo is not None:
+        canvas = photo
+        text_color = PHOTO_TEXT_COLOR
     else:
-        canvas = solid_background(size, brand.background_color)
-        text_color = hex_to_rgb(brand.text_color)
+        canvas = solid_background(size, role_color)
+        if decorative:
+            draw_accent_blobs(canvas, brand, variant=index + 10)
+        text_color = readable_text_color(role_color) if (is_hook or is_cta) else hex_to_rgb(brand.text_color)
 
     draw = ImageDraw.Draw(canvas)
     paste_logo(canvas, brand, "top-center")
@@ -314,11 +389,10 @@ def render_carousel_slide(
 
         draw.rectangle([0, size[1] - 14, size[0], size[1]], fill=accent)
 
-    dot_bg = brand.primary_color if is_hook else brand.accent_color if is_cta else brand.background_color
     draw_page_dots(
         draw, size, index, total,
-        active=readable_text_color(dot_bg),
-        inactive=mix(text_color, hex_to_rgb(dot_bg), 0.6),
+        active=readable_text_color(role_color),
+        inactive=mix(text_color, hex_to_rgb(role_color), 0.6),
     )
     draw_handle(draw, brand, size, text_color)
     return canvas
@@ -331,13 +405,25 @@ TEMPLATES = {
 }
 
 
-def render_post(brand: Brand, slides: list[Slide], template: str) -> list[Image.Image]:
+def render_post(
+    brand: Brand,
+    slides: list[Slide],
+    template: str,
+    background_images: list[str | None] | None = None,
+    decorative: bool = True,
+) -> list[Image.Image]:
+    """background_images, if given, must be the same length as slides — an entry of
+    None falls back to a solid-color (optionally decorated) background for that slide."""
     spec = TEMPLATES.get(template, TEMPLATES["list_carousel"])
     size = spec["size"]
+    images = background_images or [None] * len(slides)
     if spec["multi_slide"]:
         total = len(slides)
-        return [spec["render"](brand, s, i, total, size) for i, s in enumerate(slides)]
-    return [spec["render"](brand, slides[0], size)]
+        return [
+            spec["render"](brand, s, i, total, size, background_image=images[i], decorative=decorative)
+            for i, s in enumerate(slides)
+        ]
+    return [spec["render"](brand, slides[0], size, background_image=images[0], decorative=decorative)]
 
 
 def save_slides(brand_id: str, images: list[Image.Image], post_slug: str) -> list[str]:

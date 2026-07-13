@@ -23,6 +23,15 @@ def render_sidebar() -> Brand | None:
     )
     st.session_state["api_key"] = api_key
 
+    adobe_key = st.sidebar.text_input(
+        "Adobe Stock API key (optional)",
+        type="password",
+        value=st.session_state.get("adobe_api_key", os.environ.get("ADOBE_STOCK_API_KEY", "")),
+        help="Used to search Adobe Stock for post background photos on the Brand Setup page. "
+        "Stored only for this session, never saved to disk.",
+    )
+    st.session_state["adobe_api_key"] = adobe_key
+
     brands = db.list_brands()
     if not brands:
         st.sidebar.info("No brands yet — create one on the Brand Setup page.")
@@ -71,3 +80,7 @@ def require_api_key() -> str:
         st.warning("Enter an Anthropic API key in the sidebar to use AI-generated research and copy.")
         st.stop()
     return key
+
+
+def get_adobe_api_key() -> str | None:
+    return st.session_state.get("adobe_api_key") or os.environ.get("ADOBE_STOCK_API_KEY")

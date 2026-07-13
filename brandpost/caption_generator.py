@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from brandpost import llm
 from brandpost.models import Brand, ContentIdea
+
+URL_RE = re.compile(r"https?://\S+|(?:www\.)?instagram\.com/\S+", re.IGNORECASE)
+
+
+def _strip_urls(text: str) -> str:
+    return re.sub(r"[ \t]{2,}", " ", URL_RE.sub("", text)).strip()
 
 SYSTEM_PROMPT = """You are an expert Instagram copywriter and content designer for
 brands optimizing for organic growth (saves, shares, comments, follows). You
@@ -65,6 +72,11 @@ hook line, 2-4 short paragraphs expanding on the value with line breaks, and a
 call to action. Keep on-image text short (it must fit on a 1080px square
 image) - put the detail in the caption instead.
 
+Never include a raw URL or the full instagram.com profile link anywhere in the
+caption or on-image text - people already see whose account posted it. If the
+call to action mentions following or visiting the profile, refer to the handle
+only (e.g. "follow {brand.handle or brand.name}"), never a link.
+
 Suggest one template name that fits best: "quote", "stat", or "list_carousel".
 
 Return JSON with exactly these keys: "caption" (string), "hashtags" (array of
@@ -73,9 +85,12 @@ and "body" strings, body may be empty for the hook slide), "suggested_template"
 (one of quote/stat/list_carousel)."""
 
     raw = llm.generate_json(prompt, system=SYSTEM_PROMPT, api_key=api_key, max_tokens=2500)
-    slides = [Slide(heading=s.get("heading", ""), body=s.get("body", "")) for s in raw.get("slides", [])]
+    slides = [
+        Slide(heading=_strip_urls(s.get("heading", "")), body=_strip_urls(s.get("body", "")))
+        for s in raw.get("slides", [])
+    ]
     return PostContent(
-        caption=raw.get("caption", ""),
+        caption=_strip_urls(raw.get("caption", "")),
         hashtags=[h.lstrip("#") for h in raw.get("hashtags", [])],
         slides=slides or [Slide(heading=idea.topic, body=idea.angle)],
         suggested_template=raw.get("suggested_template", "list_carousel"),

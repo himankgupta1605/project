@@ -2,7 +2,7 @@ from slugify import slugify
 
 import streamlit as st
 
-from brandpost import caption_generator, db, image_templates
+from brandpost import caption_generator, db, image_templates, storage
 from brandpost.caption_generator import Slide
 from brandpost.models import ContentIdea, Post
 from brandpost.ui_common import require_api_key, require_brand
@@ -10,6 +10,9 @@ from brandpost.ui_common import require_api_key, require_brand
 st.set_page_config(page_title="Generate Post — BrandPost Studio", page_icon="🖼️", layout="wide")
 db.init_db()
 brand = require_brand()
+
+library_images = storage.list_library_images(brand.id)
+photo_options = ["Solid color"] + [f"Photo {i + 1}" for i in range(len(library_images))]
 
 st.title("🖼️ Generate Post")
 
@@ -73,13 +76,32 @@ if draft:
     caption_text = st.text_area("Caption", value=draft.caption, height=200)
     hashtags_text = st.text_input("Hashtags (space separated)", value=" ".join(f"#{h}" for h in draft.hashtags))
 
-    st.markdown("**On-image slide copy**")
+    decorative = st.checkbox(
+        "Add subtle decorative accent shapes to solid-color backgrounds", value=True,
+        help="Soft blurred brand-color blobs in the top/bottom margins for a less flat look. "
+        "Ignored on slides using a photo background.",
+    )
+
+    st.markdown("**On-image slide copy & visuals**")
     edited_slides = []
+    background_images: list[str | None] = []
     for i, slide in enumerate(draft.slides):
         with st.expander(f"Slide {i + 1}: {slide.heading[:40]}", expanded=(i == 0)):
             heading = st.text_input("Heading", value=slide.heading, key=f"slide_h_{i}")
             body = st.text_area("Body", value=slide.body, key=f"slide_b_{i}")
             edited_slides.append(Slide(heading=heading, body=body))
+
+            if library_images:
+                choice = st.selectbox("Background", photo_options, key=f"slide_bg_{i}")
+                if choice == "Solid color":
+                    background_images.append(None)
+                else:
+                    photo_path = library_images[photo_options.index(choice) - 1]
+                    background_images.append(photo_path)
+                    st.image(photo_path, width=160)
+            else:
+                background_images.append(None)
+                st.caption("No brand photos uploaded yet — add some on the Brand Setup page to use photo backgrounds here.")
 
     render_template = "list_carousel"
     if post_type == "static":
@@ -91,7 +113,10 @@ if draft:
 
     if st.button("Render images", type="primary"):
         with st.spinner("Rendering..."):
-            images = image_templates.render_post(brand, edited_slides, render_template)
+            images = image_templates.render_post(
+                brand, edited_slides, render_template,
+                background_images=background_images, decorative=decorative,
+            )
             slug = slugify(st.session_state.get("draft_topic", "post"))[:40] or "post"
             paths = image_templates.save_slides(brand.id, images, slug)
             post = db.add_post(

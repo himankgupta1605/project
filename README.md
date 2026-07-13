@@ -23,15 +23,35 @@ theme, fonts, logo, competitor research, and generated content differ.
    on-image slide copy in the brand's voice, review/edit it, then render a
    fully branded static post (quote or stat-card template) or carousel
    (hook → value slides → CTA) with Pillow — themed automatically from the
-   brand's colors, fonts, and logo.
+   brand's colors, fonts, and logo. Each slide can use a flat brand-color
+   background (with subtle blurred accent-color shapes tucked into the
+   corners for depth) or a brand photo with a dark scrim behind the text for
+   more visually varied, creative posts. Captions never include a raw
+   Instagram link — CTAs reference the handle only.
 5. **Library** — browse, preview, and download everything generated for a
    brand.
+
+## Photo backgrounds
+
+Brand Setup has a **Photo library** section per brand, filled two ways:
+
+- **Manual upload** — product/lifestyle photos you already have.
+- **Adobe Stock search** — enter an Adobe Stock API key (sidebar, session-only,
+  never saved to disk; or set `ADOBE_STOCK_API_KEY`) and search Adobe's photo
+  library by keyword right from Brand Setup; picked results are saved into the
+  same per-brand library. Search results are preview-resolution thumbnails for
+  drafting a look — license the image through Adobe Stock before publishing a
+  post commercially, or stick to your own uploaded photos for anything final.
+
+Once a brand has library photos, Generate Post lets you assign one as the
+background for any slide (or leave it solid-color) independently, per slide.
 
 ## Setup
 
 ```bash
 pip install -r requirements.txt
-export ANTHROPIC_API_KEY=sk-ant-...   # or paste it into the sidebar at runtime
+export ANTHROPIC_API_KEY=sk-ant-...      # or paste it into the sidebar at runtime
+export ADOBE_STOCK_API_KEY=...           # optional — enables Adobe Stock photo search
 streamlit run app.py
 ```
 
@@ -56,8 +76,11 @@ brandpost/
                              + aggregate insight computation
   research.py                Brand + competitor insights -> content idea backlog
   caption_generator.py       Content idea -> caption + on-image slide copy
+                              (strips any raw Instagram links from output)
   image_templates.py         Pillow rendering engine (quote / stat / carousel
-                              templates), themed entirely from the Brand object
+                              templates, photo backgrounds with scrim, decorative
+                              accent shapes), themed entirely from the Brand object
+  adobe_stock.py              Adobe Stock photo search (API-key auth)
 ```
 
 ## Notes on Instagram scraping
