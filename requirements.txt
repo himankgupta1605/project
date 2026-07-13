@@ -1,0 +1,5 @@
+streamlit>=1.36
+Pillow>=10.3
+anthropic>=0.34
+instaloader>=4.11
+python-slugify>=8.0
