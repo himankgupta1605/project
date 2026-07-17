@@ -29,7 +29,7 @@ theme, fonts, logo, competitor research, and generated content differ.
    more visually varied, creative posts. Captions never include a raw
    Instagram link — CTAs reference the handle only.
 5. **Library** — browse, preview, and download everything generated for a
-   brand.
+   brand, and schedule/publish straight to Instagram via Buffer.
 
 ## Photo backgrounds
 
@@ -46,18 +46,46 @@ Brand Setup has a **Photo library** section per brand, filled two ways:
 Once a brand has library photos, Generate Post lets you assign one as the
 background for any slide (or leave it solid-color) independently, per slide.
 
+## Scheduling to Instagram via Buffer
+
+Every post in the **Library** has a "Schedule to Instagram via Buffer" section:
+pick the connected Instagram channel, either an exact date/time (UTC) or
+Buffer's next open queue slot, and it's scheduled through Buffer's GraphQL API
+(`api.buffer.com`) using a Buffer API key from **Settings → API** in your
+Buffer account.
+
+**Buffer has no image upload endpoint** — every image must be a stable,
+public, unauthenticated HTTPS URL that stays reachable until the post
+actually publishes. This app serves its own rendered images at such a URL via
+Streamlit's static file serving (`static/brands/<brand-id>/posts/`, enabled in
+`.streamlit/config.toml`), so **the app itself needs to run somewhere with a
+real public URL** (a deployed host, not `localhost`) — set that URL in the
+sidebar ("App public URL") or via `PUBLIC_BASE_URL`. If you deploy on a
+platform with an ephemeral/resettable filesystem (e.g. free-tier Streamlit
+Community Cloud), make sure a scheduled post's images stay in place until
+Buffer actually fetches and publishes them — don't restart/redeploy the app
+in between.
+
+Carousel (multi-image) scheduling is implemented as an ordered `assets` list
+per Instagram's own carousel model, but Buffer's docs don't explicitly confirm
+multi-image support at the API level — the Library page flags this; verify
+the first scheduled carousel in your Buffer dashboard before relying on it.
+
 ## Setup
 
 ```bash
 pip install -r requirements.txt
 export ANTHROPIC_API_KEY=sk-ant-...      # or paste it into the sidebar at runtime
 export ADOBE_STOCK_API_KEY=...           # optional — enables Adobe Stock photo search
+export BUFFER_API_KEY=...                # optional — enables Instagram scheduling via Buffer
+export PUBLIC_BASE_URL=https://...       # optional — this app's own public URL, required for Buffer
 streamlit run app.py
 ```
 
 Data is stored locally: brand records, competitor data, and content ideas in
-a SQLite database at `data/brandpost.db`; per-brand logos, fonts, and
-generated post images under `data/brands/<brand-id>/`.
+a SQLite database at `data/brandpost.db`; per-brand logos, fonts, and photo
+library under `data/brands/<brand-id>/`. Rendered post images live under
+`static/brands/<brand-id>/posts/` instead, so they can be served publicly.
 
 ## Project layout
 
@@ -81,6 +109,9 @@ brandpost/
                               templates, photo backgrounds with scrim, decorative
                               accent shapes), themed entirely from the Brand object
   adobe_stock.py              Adobe Stock photo search (API-key auth)
+  buffer_api.py                Buffer GraphQL client (channels + scheduled posts)
+  scheduler_ui.py               Library page widget: schedule a post via Buffer
+static/brands/<brand-id>/posts/   Rendered post images (served publicly for Buffer)
 ```
 
 ## Notes on Instagram scraping

@@ -73,9 +73,18 @@ CREATE TABLE IF NOT EXISTS posts (
     caption TEXT,
     hashtags TEXT,
     slide_paths TEXT,
-    created_at TEXT
+    created_at TEXT,
+    buffer_post_id TEXT,
+    scheduled_at TEXT
 );
 """
+
+# Columns added after the initial release — added defensively for DBs created
+# before this migration existed. New DBs already get them from SCHEMA above.
+_POST_MIGRATIONS = [
+    "ALTER TABLE posts ADD COLUMN buffer_post_id TEXT",
+    "ALTER TABLE posts ADD COLUMN scheduled_at TEXT",
+]
 
 
 @contextmanager
@@ -93,6 +102,11 @@ def get_conn() -> Iterator[sqlite3.Connection]:
 def init_db() -> None:
     with get_conn() as conn:
         conn.executescript(SCHEMA)
+        for migration in _POST_MIGRATIONS:
+            try:
+                conn.execute(migration)
+            except sqlite3.OperationalError:
+                pass  # column already exists
 
 
 def now() -> str:
@@ -274,6 +288,14 @@ def list_posts(brand_id: str) -> list[Post]:
             d["slide_paths"] = json.loads(d["slide_paths"] or "[]")
             posts.append(Post(**d))
         return posts
+
+
+def mark_post_scheduled(post_id: int, buffer_post_id: str, scheduled_at: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE posts SET buffer_post_id = ?, scheduled_at = ? WHERE id = ?",
+            (buffer_post_id, scheduled_at, post_id),
+        )
 
 
 def delete_post(post_id: int) -> None:

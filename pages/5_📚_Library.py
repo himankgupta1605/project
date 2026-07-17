@@ -1,6 +1,7 @@
 import streamlit as st
 
 from brandpost import db
+from brandpost.scheduler_ui import render_scheduler
 from brandpost.ui_common import require_brand
 
 st.set_page_config(page_title="Library — BrandPost Studio", page_icon="📚", layout="wide")
@@ -24,6 +25,11 @@ for post in posts:
         st.markdown("**Caption**")
         st.write(post.caption)
         st.caption(post.hashtags)
+
+        st.divider()
+        render_scheduler(post, brand)
+
+        st.divider()
         if st.button("Delete post", key=f"del_post_{post.id}"):
             db.delete_post(post.id)
             st.rerun()

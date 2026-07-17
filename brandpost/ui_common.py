@@ -32,6 +32,25 @@ def render_sidebar() -> Brand | None:
     )
     st.session_state["adobe_api_key"] = adobe_key
 
+    buffer_key = st.sidebar.text_input(
+        "Buffer API key (optional)",
+        type="password",
+        value=st.session_state.get("buffer_api_key", os.environ.get("BUFFER_API_KEY", "")),
+        help="Used to schedule/publish rendered posts to Instagram via Buffer on the Library page. "
+        "Stored only for this session, never saved to disk.",
+    )
+    st.session_state["buffer_api_key"] = buffer_key
+
+    public_base_url = st.sidebar.text_input(
+        "App public URL (for Buffer)",
+        value=st.session_state.get("public_base_url", os.environ.get("PUBLIC_BASE_URL", "")),
+        help="This app's own public HTTPS URL (e.g. https://yourapp.example.com), used to build "
+        "public links to rendered post images — Buffer has no image upload endpoint and requires "
+        "a stable public URL for each image. Leave blank if you're not scheduling via Buffer yet.",
+        placeholder="https://yourapp.example.com",
+    )
+    st.session_state["public_base_url"] = public_base_url
+
     brands = db.list_brands()
     if not brands:
         st.sidebar.info("No brands yet — create one on the Brand Setup page.")
@@ -84,3 +103,11 @@ def require_api_key() -> str:
 
 def get_adobe_api_key() -> str | None:
     return st.session_state.get("adobe_api_key") or os.environ.get("ADOBE_STOCK_API_KEY")
+
+
+def get_buffer_api_key() -> str | None:
+    return st.session_state.get("buffer_api_key") or os.environ.get("BUFFER_API_KEY")
+
+
+def get_public_base_url() -> str | None:
+    return st.session_state.get("public_base_url") or os.environ.get("PUBLIC_BASE_URL")

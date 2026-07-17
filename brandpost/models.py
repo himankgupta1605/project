@@ -76,3 +76,5 @@ class Post:
     hashtags: str
     slide_paths: list = field(default_factory=list)
     created_at: str = ""
+    buffer_post_id: Optional[str] = None
+    scheduled_at: Optional[str] = None

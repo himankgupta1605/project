@@ -6,13 +6,12 @@ from pathlib import Path
 
 from slugify import slugify
 
-from brandpost.config import BRANDS_DIR
+from brandpost.config import BRANDS_DIR, STATIC_BRANDS_DIR, STATIC_DIR
 
 
 def brand_dir(brand_id: str) -> Path:
     d = BRANDS_DIR / brand_id
     (d / "assets").mkdir(parents=True, exist_ok=True)
-    (d / "posts").mkdir(parents=True, exist_ok=True)
     (d / "library").mkdir(parents=True, exist_ok=True)
     return d
 
@@ -22,7 +21,18 @@ def assets_dir(brand_id: str) -> Path:
 
 
 def posts_dir(brand_id: str) -> Path:
-    return brand_dir(brand_id) / "posts"
+    """Rendered post images. Lives under static/, not data/, so they can be
+    served at a public URL (see config.STATIC_DIR)."""
+    d = STATIC_BRANDS_DIR / brand_id / "posts"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def public_url_for(local_path: str, base_url: str) -> str:
+    """Convert a rendered post's local file path to the public URL Streamlit's
+    static file server exposes it at (requires server.enableStaticServing)."""
+    rel = Path(local_path).resolve().relative_to(STATIC_DIR.resolve())
+    return f"{base_url.rstrip('/')}/app/static/{rel.as_posix()}"
 
 
 def library_dir(brand_id: str) -> Path:
