@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 from slugify import slugify
@@ -28,10 +29,37 @@ def posts_dir(brand_id: str) -> Path:
     return d
 
 
+def ensure_public_path(local_path: str) -> str:
+    """Return a path under STATIC_DIR usable with public_url_for.
+
+    Posts rendered before post images moved from data/ to static/ still have
+    slide_paths pointing at the old data/brands/<id>/posts/ location, which
+    isn't publicly served. Copy the file into static/ on demand instead of
+    failing, so old posts keep working without needing to be regenerated."""
+    p = Path(local_path).resolve()
+    try:
+        p.relative_to(STATIC_DIR.resolve())
+        return str(p)
+    except ValueError:
+        pass
+
+    if not p.exists():
+        raise FileNotFoundError(
+            f"Rendered image not found at {local_path} - regenerate this post from Generate Post."
+        )
+    brand_id = p.parent.parent.name  # .../<brand_id>/posts/<filename>
+    dest = STATIC_BRANDS_DIR / brand_id / "posts" / p.name
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if not dest.exists():
+        shutil.copy(p, dest)
+    return str(dest)
+
+
 def public_url_for(local_path: str, base_url: str) -> str:
     """Convert a rendered post's local file path to the public URL Streamlit's
     static file server exposes it at (requires server.enableStaticServing)."""
-    rel = Path(local_path).resolve().relative_to(STATIC_DIR.resolve())
+    public_path = ensure_public_path(local_path)
+    rel = Path(public_path).relative_to(STATIC_DIR.resolve())
     return f"{base_url.rstrip('/')}/app/static/{rel.as_posix()}"
 
 

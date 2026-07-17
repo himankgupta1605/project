@@ -87,3 +87,5 @@ def render_scheduler(post: Post, brand: Brand) -> None:
                 st.rerun()
             except buffer_api.BufferError as exc:
                 st.error(str(exc))
+            except (OSError, ValueError) as exc:
+                st.error(f"Couldn't prepare images for scheduling: {exc}")
