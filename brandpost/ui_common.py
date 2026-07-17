@@ -41,15 +41,41 @@ def render_sidebar() -> Brand | None:
     )
     st.session_state["buffer_api_key"] = buffer_key
 
-    public_base_url = st.sidebar.text_input(
-        "App public URL (for Buffer)",
-        value=st.session_state.get("public_base_url", os.environ.get("PUBLIC_BASE_URL", "")),
-        help="This app's own public HTTPS URL (e.g. https://yourapp.example.com), used to build "
-        "public links to rendered post images — Buffer has no image upload endpoint and requires "
-        "a stable public URL for each image. Leave blank if you're not scheduling via Buffer yet.",
-        placeholder="https://yourapp.example.com",
-    )
-    st.session_state["public_base_url"] = public_base_url
+    with st.sidebar.expander("Image hosting for Buffer", expanded=False):
+        st.caption(
+            "Buffer has no image upload endpoint — it needs a stable public URL per image. "
+            "Cloudinary (recommended) uploads each rendered slide and hands back a permanent URL; "
+            "use it if your deployment's own static file serving isn't reachable (e.g. Streamlit "
+            "Community Cloud apps behind viewer auth)."
+        )
+        cloud_name = st.text_input(
+            "Cloudinary cloud name",
+            value=st.session_state.get("cloudinary_cloud_name", os.environ.get("CLOUDINARY_CLOUD_NAME", "")),
+        )
+        st.session_state["cloudinary_cloud_name"] = cloud_name
+
+        cloud_api_key = st.text_input(
+            "Cloudinary API key",
+            type="password",
+            value=st.session_state.get("cloudinary_api_key", os.environ.get("CLOUDINARY_API_KEY", "")),
+        )
+        st.session_state["cloudinary_api_key"] = cloud_api_key
+
+        cloud_api_secret = st.text_input(
+            "Cloudinary API secret",
+            type="password",
+            value=st.session_state.get("cloudinary_api_secret", os.environ.get("CLOUDINARY_API_SECRET", "")),
+            help="From Cloudinary's dashboard: Settings → API Keys. Session-only, never saved to disk.",
+        )
+        st.session_state["cloudinary_api_secret"] = cloud_api_secret
+
+        st.caption("— or, if you know your app's own static files are publicly reachable —")
+        public_base_url = st.text_input(
+            "App public URL (fallback)",
+            value=st.session_state.get("public_base_url", os.environ.get("PUBLIC_BASE_URL", "")),
+            placeholder="https://yourapp.example.com",
+        )
+        st.session_state["public_base_url"] = public_base_url
 
     brands = db.list_brands()
     if not brands:
@@ -111,3 +137,12 @@ def get_buffer_api_key() -> str | None:
 
 def get_public_base_url() -> str | None:
     return st.session_state.get("public_base_url") or os.environ.get("PUBLIC_BASE_URL")
+
+
+def get_cloudinary_config() -> tuple[str, str, str] | None:
+    cloud_name = st.session_state.get("cloudinary_cloud_name") or os.environ.get("CLOUDINARY_CLOUD_NAME")
+    api_key = st.session_state.get("cloudinary_api_key") or os.environ.get("CLOUDINARY_API_KEY")
+    api_secret = st.session_state.get("cloudinary_api_secret") or os.environ.get("CLOUDINARY_API_SECRET")
+    if cloud_name and api_key and api_secret:
+        return cloud_name, api_key, api_secret
+    return None

@@ -6,9 +6,9 @@ from datetime import datetime, time
 
 import streamlit as st
 
-from brandpost import buffer_api, db, storage
+from brandpost import buffer_api, cloudinary_host, db, storage
 from brandpost.models import Brand, Post
-from brandpost.ui_common import get_buffer_api_key, get_public_base_url
+from brandpost.ui_common import get_buffer_api_key, get_cloudinary_config, get_public_base_url
 
 
 def _load_channels(api_key: str) -> list[buffer_api.Channel]:
@@ -21,6 +21,22 @@ def _load_channels(api_key: str) -> list[buffer_api.Channel]:
     return st.session_state["buffer_channels"]
 
 
+def _public_image_urls(slide_paths: list[str], base_url: str | None) -> list[str]:
+    """Get a public URL per slide, preferring Cloudinary when configured since it
+    doesn't depend on the app's own deployment supporting static file serving."""
+    cloud_config = get_cloudinary_config()
+    cache = st.session_state.setdefault("cloudinary_uploads", {})
+    urls = []
+    for path in slide_paths:
+        if cloud_config:
+            if path not in cache:
+                cache[path] = cloudinary_host.upload_image(path, *cloud_config)
+            urls.append(cache[path])
+        else:
+            urls.append(storage.public_url_for(path, base_url))
+    return urls
+
+
 def render_scheduler(post: Post, brand: Brand) -> None:
     st.markdown("**Schedule to Instagram via Buffer**")
 
@@ -30,14 +46,16 @@ def render_scheduler(post: Post, brand: Brand) -> None:
         return
 
     api_key = get_buffer_api_key()
+    cloud_config = get_cloudinary_config()
     base_url = get_public_base_url()
     if not api_key:
         st.caption("Enter a Buffer API key in the sidebar to schedule this post.")
         return
-    if not base_url:
+    if not cloud_config and not base_url:
         st.caption(
-            "Enter this app's public URL in the sidebar (\"App public URL\") so Buffer can fetch "
-            "the rendered images — Buffer has no image upload endpoint and needs a stable public URL."
+            "Set up image hosting in the sidebar (\"Image hosting for Buffer\" — Cloudinary "
+            "recommended) so Buffer can fetch the rendered images. Buffer has no image upload "
+            "endpoint of its own."
         )
         return
 
@@ -71,9 +89,10 @@ def render_scheduler(post: Post, brand: Brand) -> None:
         scheduled_dt = datetime.combine(sched_date, sched_time)
 
     if st.button("Schedule post", type="primary", key=f"schedule_{post.id}"):
-        with st.spinner("Scheduling via Buffer..."):
-            try:
-                image_urls = [storage.public_url_for(p, base_url) for p in post.slide_paths]
+        try:
+            with st.spinner("Uploading images..." if cloud_config else "Preparing images..."):
+                image_urls = _public_image_urls(post.slide_paths, base_url)
+            with st.spinner("Scheduling via Buffer..."):
                 buffer_post_id = buffer_api.schedule_post(
                     api_key=api_key,
                     channel_id=channel.id,
@@ -81,11 +100,13 @@ def render_scheduler(post: Post, brand: Brand) -> None:
                     image_urls=image_urls,
                     scheduled_at=scheduled_dt,
                 )
-                scheduled_label = scheduled_dt.isoformat() + "Z" if scheduled_dt else "next queue slot"
-                db.mark_post_scheduled(post.id, buffer_post_id, scheduled_label)
-                st.success("Scheduled via Buffer.")
-                st.rerun()
-            except buffer_api.BufferError as exc:
-                st.error(str(exc))
-            except (OSError, ValueError) as exc:
-                st.error(f"Couldn't prepare images for scheduling: {exc}")
+            scheduled_label = scheduled_dt.isoformat() + "Z" if scheduled_dt else "next queue slot"
+            db.mark_post_scheduled(post.id, buffer_post_id, scheduled_label)
+            st.success("Scheduled via Buffer.")
+            st.rerun()
+        except buffer_api.BufferError as exc:
+            st.error(str(exc))
+        except cloudinary_host.CloudinaryError as exc:
+            st.error(str(exc))
+        except (OSError, ValueError) as exc:
+            st.error(f"Couldn't prepare images for scheduling: {exc}")

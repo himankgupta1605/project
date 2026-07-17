@@ -56,15 +56,32 @@ Buffer account.
 
 **Buffer has no image upload endpoint** — every image must be a stable,
 public, unauthenticated HTTPS URL that stays reachable until the post
-actually publishes. This app serves its own rendered images at such a URL via
-Streamlit's static file serving (`static/brands/<brand-id>/posts/`, enabled in
-`.streamlit/config.toml`), so **the app itself needs to run somewhere with a
-real public URL** (a deployed host, not `localhost`) — set that URL in the
-sidebar ("App public URL") or via `PUBLIC_BASE_URL`. If you deploy on a
-platform with an ephemeral/resettable filesystem (e.g. free-tier Streamlit
-Community Cloud), make sure a scheduled post's images stay in place until
-Buffer actually fetches and publishes them — don't restart/redeploy the app
-in between.
+actually publishes. There are two ways to give it one, configured in the
+sidebar under **"Image hosting for Buffer"**:
+
+- **Cloudinary (recommended)** — enter your Cloudinary cloud name, API key,
+  and API secret (from Cloudinary's dashboard → Settings → API Keys, or set
+  `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET`).
+  Each slide is uploaded to Cloudinary right before scheduling and Buffer is
+  given the permanent `secure_url` it hands back. This works regardless of
+  how or where BrandPost Studio itself is deployed — in particular, it's the
+  only reliable option on **Streamlit Community Cloud**, whose viewer-auth
+  layer redirects unauthenticated requests (including Buffer's) away from
+  the app's own static files, even when the app is set to "public."
+- **App public URL (fallback)** — if you know your deployment's own static
+  file serving is genuinely reachable without auth (self-hosted, a plain VPS,
+  etc.), set the app's public URL here (or via `PUBLIC_BASE_URL`) instead.
+  Rendered images are served at `<url>/app/static/brands/<brand-id>/posts/...`
+  via Streamlit's static file serving (`static/` folder, enabled in
+  `.streamlit/config.toml`). Verify with `curl -I` that a real rendered
+  image's URL returns the image directly and not a login redirect before
+  relying on this path.
+
+Posts rendered before this feature existed may still have image paths under
+the old `data/brands/.../posts/` location; scheduling one of those copies the
+file into `static/` automatically the first time (or reports a clear error if
+the source file's no longer on disk — e.g. after a redeploy wiped an
+ephemeral filesystem).
 
 Carousel (multi-image) scheduling is implemented as an ordered `assets` list
 per Instagram's own carousel model, but Buffer's docs don't explicitly confirm
@@ -78,7 +95,10 @@ pip install -r requirements.txt
 export ANTHROPIC_API_KEY=sk-ant-...      # or paste it into the sidebar at runtime
 export ADOBE_STOCK_API_KEY=...           # optional — enables Adobe Stock photo search
 export BUFFER_API_KEY=...                # optional — enables Instagram scheduling via Buffer
-export PUBLIC_BASE_URL=https://...       # optional — this app's own public URL, required for Buffer
+export CLOUDINARY_CLOUD_NAME=...         # optional — recommended image host for Buffer scheduling
+export CLOUDINARY_API_KEY=...
+export CLOUDINARY_API_SECRET=...
+export PUBLIC_BASE_URL=https://...       # optional — fallback image host instead of Cloudinary
 streamlit run app.py
 ```
 
@@ -110,8 +130,9 @@ brandpost/
                               accent shapes), themed entirely from the Brand object
   adobe_stock.py              Adobe Stock photo search (API-key auth)
   buffer_api.py                Buffer GraphQL client (channels + scheduled posts)
-  scheduler_ui.py               Library page widget: schedule a post via Buffer
-static/brands/<brand-id>/posts/   Rendered post images (served publicly for Buffer)
+  cloudinary_host.py            Uploads rendered images to Cloudinary for a public URL
+  scheduler_ui.py                 Library page widget: schedule a post via Buffer
+static/brands/<brand-id>/posts/   Rendered post images (served publicly as a fallback)
 ```
 
 ## Notes on Instagram scraping
